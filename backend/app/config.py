@@ -18,8 +18,7 @@ class Settings(BaseSettings):
     )
 
     # API Keys
-    openai_api_key: str = Field(..., validation_alias="OPENAI_API_KEY")
-    anthropic_api_key: str | None = Field(None, validation_alias="ANTHROPIC_API_KEY")
+    openrouter_api_key: str = Field(..., validation_alias="OPENROUTER_API_KEY")
     brave_api_key: str | None = Field(None, validation_alias="BRAVE_API_KEY")
 
     # Clerk Authentication
@@ -54,10 +53,8 @@ class Settings(BaseSettings):
     debug: bool = True
     cors_origins: list[str] = ["http://localhost:3000"]
 
-    # LLM Settings
-    default_llm_provider: Literal["anthropic", "openai"] = "anthropic"
-    anthropic_model: str = "claude-3-5-sonnet-20241022"
-    openai_model: str = "gpt-4"
+    # LLM Settings (via OpenRouter)
+    default_llm_model: str = "openai/gpt-4.1-mini"  # OpenRouter model format
 
     # Cache TTL (in seconds)
     company_cache_ttl: int = 86400  # 24 hours

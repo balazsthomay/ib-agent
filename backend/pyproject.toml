@@ -25,6 +25,7 @@ dependencies = [
     "sqlalchemy>=2.0.43",
     "supabase>=2.20.0",
     "svix>=1.76.1",
+    "upstash-redis>=1.4.0",
     "uvicorn[standard]>=0.37.0",
 ]
 
