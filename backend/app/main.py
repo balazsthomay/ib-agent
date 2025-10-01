@@ -49,12 +49,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers (will be added as we build them)
-# from app.api.routes import auth, chat, health, projects
-# app.include_router(health.router, tags=["health"])
-# app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
-# app.include_router(projects.router, prefix="/api/v1/projects", tags=["projects"])
-# app.include_router(chat.router, prefix="/api/v1", tags=["chat"])
+# Include routers
+from app.api.routes import health
+
+app.include_router(health.router)
 
 
 @app.get("/")

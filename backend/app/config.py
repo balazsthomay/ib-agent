@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     supabase_service_key: str | None = Field(
         None, validation_alias="SUPABASE_SERVICE_KEY"
     )
+    database_url: str = Field(
+        ..., validation_alias="DATABASE_URL"
+    )  # PostgreSQL connection with asyncpg driver
 
     # Upstash Redis (uses HTTPS REST API, not standard Redis protocol)
     upstash_redis_url: str = Field(..., validation_alias="UPSTASH_REDIS_REST_URL")
