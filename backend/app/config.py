@@ -3,7 +3,7 @@ Application configuration using Pydantic Settings.
 """
 from typing import Literal
 
-from pydantic import Field, PostgresDsn, RedisDsn
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
