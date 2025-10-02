@@ -63,16 +63,17 @@ async def create_project(
     db: AsyncSession = Depends(get_db),
 ) -> Project:
     """Create a new project for the user's firm."""
-    if not current_user.get("org_id"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User must belong to an organization to create projects",
-        )
+    from app.db.models import Firm, User
 
+    # Use org_id if available, otherwise fall back to user_id for development
+    firm_id = current_user.get("org_id") or current_user["user_id"]
+    user_id = current_user["user_id"]
+
+    # Note: User and firm are auto-provisioned by auth middleware on first request
     project = Project(
         id=uuid.uuid4(),
-        firm_id=current_user["org_id"],
-        owner_id=current_user["user_id"],
+        firm_id=firm_id,
+        owner_id=user_id,
         name=project_data.name,
         description=project_data.description,
         target_company=project_data.target_company,
@@ -92,15 +93,12 @@ async def list_projects(
     db: AsyncSession = Depends(get_db),
 ) -> list[Project]:
     """List all projects for the user's firm."""
-    if not current_user.get("org_id"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User must belong to an organization",
-        )
+    # Use org_id if available, otherwise fall back to user_id for personal accounts
+    firm_id = current_user.get("org_id") or current_user["user_id"]
 
     result = await db.execute(
         select(Project)
-        .where(Project.firm_id == current_user["org_id"])
+        .where(Project.firm_id == firm_id)
         .order_by(Project.created_at.desc())
     )
 
@@ -125,7 +123,8 @@ async def get_project(
         )
 
     # Verify user has access to this project
-    if project.firm_id != current_user.get("org_id"):
+    firm_id = current_user.get("org_id") or current_user["user_id"]
+    if project.firm_id != firm_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied",
