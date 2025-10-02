@@ -18,8 +18,8 @@ export default async function DashboardPage() {
     redirect('/')
   }
 
-  let projects = []
-  let error = null
+  let projects: Awaited<ReturnType<typeof getProjects>> = []
+  let error: string | null = null
 
   try {
     projects = await getProjects(token)

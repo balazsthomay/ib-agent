@@ -2,6 +2,7 @@ import { auth } from '@clerk/nextjs/server'
 import { redirect } from 'next/navigation'
 import { UserButton } from '@clerk/nextjs'
 import Link from 'next/link'
+import { ChatInterface } from '@/components/chat-interface'
 
 interface ChatPageProps {
   searchParams: Promise<{
@@ -55,33 +56,7 @@ export default async function ChatPage({ searchParams }: ChatPageProps) {
         </div>
 
         <div className="flex-1 flex flex-col border border-border rounded-lg overflow-hidden">
-          <div className="flex-1 flex flex-col p-4 overflow-y-auto bg-muted/20">
-            <div className="flex-1 flex items-center justify-center">
-              <div className="text-center text-muted-foreground">
-                <p className="text-lg mb-2">Chat interface coming soon</p>
-                <p className="text-sm">
-                  This will connect to the backend chat API with WebSocket support
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="border-t border-border p-4 bg-background">
-            <div className="flex gap-2">
-              <input
-                type="text"
-                placeholder="Type your message... (disabled)"
-                disabled
-                className="flex-1 px-4 py-2 rounded-md border border-border bg-muted/50 cursor-not-allowed"
-              />
-              <button
-                disabled
-                className="px-6 py-2 rounded-md bg-foreground/50 text-background cursor-not-allowed"
-              >
-                Send
-              </button>
-            </div>
-          </div>
+          <ChatInterface projectId={projectId} />
         </div>
       </main>
     </div>

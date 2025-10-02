@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, status
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,6 +24,8 @@ class ChatMessageCreate(BaseModel):
 
 
 class ChatMessageResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     project_id: str
     user_id: str
@@ -31,9 +33,6 @@ class ChatMessageResponse(BaseModel):
     content: str
     message_metadata: str | None
     created_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 class ChatCompletionRequest(BaseModel):
@@ -66,7 +65,9 @@ async def create_message(
             detail="Project not found",
         )
 
-    if project.firm_id != current_user.get("org_id"):
+    # Check if user has access (either via org or personal account)
+    user_firm_id = current_user.get("org_id") or current_user["user_id"]
+    if project.firm_id != user_firm_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied",
@@ -106,7 +107,9 @@ async def list_messages(
             detail="Project not found",
         )
 
-    if project.firm_id != current_user.get("org_id"):
+    # Check if user has access (either via org or personal account)
+    user_firm_id = current_user.get("org_id") or current_user["user_id"]
+    if project.firm_id != user_firm_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied",
@@ -121,7 +124,52 @@ async def list_messages(
     )
 
     messages = result.scalars().all()
-    return list(messages)
+    # Convert UUID fields to strings for JSON serialization
+    return [
+        ChatMessageResponse(
+            id=str(msg.id),
+            project_id=str(msg.project_id),
+            user_id=msg.user_id,
+            role=msg.role,
+            content=msg.content,
+            message_metadata=msg.message_metadata,
+            created_at=msg.created_at,
+        )
+        for msg in messages
+    ]
+
+
+@router.delete("/messages/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def clear_messages(
+    project_id: str,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Clear all chat messages for a project."""
+    # Verify project access
+    result = await db.execute(select(Project).where(Project.id == uuid.UUID(project_id)))
+    project = result.scalar_one_or_none()
+
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
+
+    # Check if user has access (either via org or personal account)
+    user_firm_id = current_user.get("org_id") or current_user["user_id"]
+    if project.firm_id != user_firm_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
+
+    # Delete all messages for this project
+    from sqlalchemy import delete
+    await db.execute(
+        delete(ChatMessage).where(ChatMessage.project_id == uuid.UUID(project_id))
+    )
+    await db.commit()
 
 
 @router.post("/completion", response_model=ChatCompletionResponse)
@@ -152,7 +200,9 @@ async def chat_completion(
             detail="Project not found",
         )
 
-    if project.firm_id != current_user.get("org_id"):
+    # Check if user has access (either via org or personal account)
+    user_firm_id = current_user.get("org_id") or current_user["user_id"]
+    if project.firm_id != user_firm_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied",
@@ -179,6 +229,7 @@ async def chat_completion(
     history = result.scalars().all()
 
     # Build messages for LLM
+    target_info = f"Target company: {project.target_company}." if project.target_company else ""
     messages = [
         {
             "role": "system",
@@ -186,7 +237,7 @@ async def chat_completion(
                 f"You are an AI assistant for investment banking analysts. "
                 f"You help with research, company analysis, and creating deliverables. "
                 f"Project: {project.name}. "
-                f"Target companies: {', '.join(project.target_companies or [])}."
+                f"{target_info}"
             ),
         }
     ]
@@ -246,9 +297,25 @@ async def chat_websocket(websocket: WebSocket, project_id: str) -> None:
                 })
                 continue
 
-            # TODO: Verify JWT token from websocket message
-            # For now, we'll skip auth verification on WebSocket
-            # In production, validate the token here
+            # Verify JWT token
+            from app.middleware.auth import clerk_auth
+            try:
+                token = data["token"]
+                payload = clerk_auth.verify_token(token)
+                user_id = payload.get("sub")
+
+                if not user_id:
+                    await websocket.send_json({
+                        "type": "error",
+                        "content": "Invalid token: missing user ID"
+                    })
+                    continue
+            except Exception as e:
+                await websocket.send_json({
+                    "type": "error",
+                    "content": f"Authentication failed: {str(e)}"
+                })
+                continue
 
             user_message_content = data["message"]
 
@@ -265,10 +332,6 @@ async def chat_websocket(websocket: WebSocket, project_id: str) -> None:
                         "content": "Project not found"
                     })
                     continue
-
-                # For now, use a placeholder user_id
-                # TODO: Extract user_id from verified JWT
-                user_id = "websocket_user"
 
                 # Save user message
                 user_message = ChatMessage(
@@ -291,6 +354,7 @@ async def chat_websocket(websocket: WebSocket, project_id: str) -> None:
                 history = result.scalars().all()
 
                 # Build messages for LLM
+                target_info = f"Target company: {project.target_company}." if project.target_company else ""
                 messages = [
                     {
                         "role": "system",
@@ -298,7 +362,7 @@ async def chat_websocket(websocket: WebSocket, project_id: str) -> None:
                             f"You are an AI assistant for investment banking analysts. "
                             f"You help with research, company analysis, and creating deliverables. "
                             f"Project: {project.name}. "
-                            f"Target companies: {', '.join(project.target_companies or [])}."
+                            f"{target_info}"
                         ),
                     }
                 ]
