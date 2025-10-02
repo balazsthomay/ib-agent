@@ -43,3 +43,5 @@ frontend/.cache/
 # Logs
 *.log
 logs/
+
+CONTEXT.md

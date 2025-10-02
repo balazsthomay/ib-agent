@@ -50,9 +50,11 @@ app.add_middleware(
 )
 
 # Include routers
-from app.api.routes import health
+from app.api.routes import chat, health, projects
 
 app.include_router(health.router)
+app.include_router(projects.router, prefix="/api")
+app.include_router(chat.router, prefix="/api")
 
 
 @app.get("/")
