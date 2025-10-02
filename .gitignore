@@ -1,0 +1,47 @@
+# Claude Code
+.mcp.json
+.claude/
+CLAUDE.md
+specs/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+backend/.python-version
+backend/.venv/
+backend/htmlcov/
+backend/.coverage
+backend/.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+frontend/dist/
+frontend/.cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+CONTEXT.md
