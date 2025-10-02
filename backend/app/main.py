@@ -35,9 +35,30 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 app = FastAPI(
     title="IB Agent API",
-    description="AI Platform for Small-Mid Cap Investment Banks",
+    description="""
+    ## AI Platform for Small-Mid Cap Investment Banks
+
+    Automate target screening, trading comps, and public information books using AI.
+
+    ### Features
+    - **Project Management**: Create and manage investment banking projects
+    - **AI Chat**: Natural language interface for all tasks
+    - **Trading Comps**: Automated comparable company analysis
+    - **Public Info Books**: Comprehensive company research reports
+    - **Target Screening**: AI-powered M&A target discovery
+
+    ### Authentication
+    All protected endpoints require Bearer token authentication via Clerk.
+    """,
     version="0.1.0",
     lifespan=lifespan,
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_tags=[
+        {"name": "health", "description": "Health check and system status endpoints"},
+        {"name": "projects", "description": "Project management operations"},
+        {"name": "chat", "description": "AI chat and conversation endpoints"},
+    ],
 )
 
 # CORS configuration
@@ -57,7 +78,11 @@ app.include_router(projects.router, prefix="/api")
 app.include_router(chat.router, prefix="/api")
 
 
-@app.get("/")
+@app.get("/", tags=["health"])
 async def root() -> dict[str, str]:
-    """Root endpoint."""
+    """
+    Root endpoint - API welcome message.
+
+    Returns basic API information and version.
+    """
     return {"message": "IB Agent API", "version": "0.1.0"}
