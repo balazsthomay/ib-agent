@@ -54,21 +54,37 @@ async def test_create_project_success(mock_current_user, test_db):
 
 
 @pytest.mark.asyncio
-async def test_create_project_no_org():
-    """Test project creation fails without organization."""
+async def test_create_project_no_org(test_db):
+    """Test project creation works for personal accounts without organization."""
+    from app.db.database import get_db
+    from app.db.models import Firm, User
     from app.middleware.auth import get_current_user
 
     user_without_org = {
-        "user_id": "user_123",
+        "user_id": "user_personal_456",
         "session_id": "session_456",
-        "email": "test@example.com",
+        "email": "personal@example.com",
         "org_id": None,
         "org_role": None,
     }
 
+    # Create user and personal firm in test database
+    firm = Firm(id="user_personal_456", name="Personal - personal@example.com")
+    user = User(id="user_personal_456", email="personal@example.com", firm_id=None)
+    test_db.add(firm)
+    test_db.add(user)
+    await test_db.commit()
+
+    async def override_get_db():
+        try:
+            yield test_db
+        finally:
+            pass
+
     async def override_get_current_user():
         return user_without_org
 
+    app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_current_user] = override_get_current_user
 
     try:
@@ -81,20 +97,32 @@ async def test_create_project_no_org():
                 headers={"Authorization": "Bearer fake_token"},
             )
 
-            assert response.status_code == 403
-            assert "must belong to an organization" in response.json()["detail"]
+            # Should succeed now - personal accounts are supported
+            assert response.status_code == 201
+            data = response.json()
+            assert data["name"] == "Test Project"
+            assert data["firm_id"] == "user_personal_456"  # Personal firm
+            assert data["status"] == "draft"
     finally:
         app.dependency_overrides.clear()
 
 
 @pytest.mark.asyncio
-async def test_list_projects(mock_current_user):
+async def test_list_projects(mock_current_user, test_db):
     """Test listing projects."""
+    from app.db.database import get_db
     from app.middleware.auth import get_current_user
+
+    async def override_get_db():
+        try:
+            yield test_db
+        finally:
+            pass
 
     async def override_get_current_user():
         return mock_current_user
 
+    app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_current_user] = override_get_current_user
 
     try:

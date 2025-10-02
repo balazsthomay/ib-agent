@@ -63,6 +63,31 @@ class LLMClient:
         )
         return response.choices[0].message.content
 
+    async def chat_completion_stream(
+        self,
+        messages: list[dict],
+        model: str | None = None,
+        max_tokens: int = 4096,
+        temperature: float = 0.7,
+        **kwargs,
+    ) -> AsyncIterator[str]:
+        """
+        Stream chat completion response.
+
+        Args:
+            messages: List of message dicts with 'role' and 'content'
+            model: Model name (defaults to settings.default_llm_model)
+            max_tokens: Maximum tokens in response
+            temperature: Sampling temperature (0-1)
+            **kwargs: Additional OpenRouter parameters
+
+        Yields:
+            Text chunks as they arrive
+        """
+        model = model or settings.default_llm_model
+        async for chunk in self._stream_completion(messages, model, max_tokens, temperature, **kwargs):
+            yield chunk
+
     async def _stream_completion(
         self,
         messages: list[dict],

@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     clerk_publishable_key: str = Field(
         ..., validation_alias="NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"
     )
+    clerk_webhook_secret: str | None = Field(
+        None, validation_alias="CLERK_WEBHOOK_SECRET"
+    )
 
     # Supabase Database
     supabase_url: str = Field(..., validation_alias="SUPABASE_URL")

@@ -1,14 +1,15 @@
 """API routes for chat functionality."""
 
+import json
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.database import get_db
+from app.db.database import async_session_maker, get_db
 from app.db.models import ChatMessage, Project
 from app.middleware.auth import CurrentUser
 from app.services.llm_client import llm_client
@@ -219,3 +220,123 @@ async def chat_completion(
         "message_id": str(ai_message.id),
         "content": ai_response,
     }
+
+
+@router.websocket("/ws/{project_id}")
+async def chat_websocket(websocket: WebSocket, project_id: str) -> None:
+    """
+    WebSocket endpoint for real-time chat.
+
+    Client sends: {"message": "user message", "token": "jwt_token"}
+    Server sends: {"type": "message", "content": "AI response"}
+                 {"type": "error", "content": "error message"}
+                 {"type": "done"}
+    """
+    await websocket.accept()
+
+    try:
+        while True:
+            # Receive message from client
+            data = await websocket.receive_json()
+
+            if "token" not in data or "message" not in data:
+                await websocket.send_json({
+                    "type": "error",
+                    "content": "Missing token or message"
+                })
+                continue
+
+            # TODO: Verify JWT token from websocket message
+            # For now, we'll skip auth verification on WebSocket
+            # In production, validate the token here
+
+            user_message_content = data["message"]
+
+            async with async_session_maker() as db:
+                # Verify project exists
+                result = await db.execute(
+                    select(Project).where(Project.id == uuid.UUID(project_id))
+                )
+                project = result.scalar_one_or_none()
+
+                if not project:
+                    await websocket.send_json({
+                        "type": "error",
+                        "content": "Project not found"
+                    })
+                    continue
+
+                # For now, use a placeholder user_id
+                # TODO: Extract user_id from verified JWT
+                user_id = "websocket_user"
+
+                # Save user message
+                user_message = ChatMessage(
+                    id=uuid.uuid4(),
+                    project_id=uuid.UUID(project_id),
+                    user_id=user_id,
+                    role="user",
+                    content=user_message_content,
+                )
+                db.add(user_message)
+                await db.flush()
+
+                # Get conversation history
+                result = await db.execute(
+                    select(ChatMessage)
+                    .where(ChatMessage.project_id == uuid.UUID(project_id))
+                    .order_by(ChatMessage.created_at.asc())
+                    .limit(20)
+                )
+                history = result.scalars().all()
+
+                # Build messages for LLM
+                messages = [
+                    {
+                        "role": "system",
+                        "content": (
+                            f"You are an AI assistant for investment banking analysts. "
+                            f"You help with research, company analysis, and creating deliverables. "
+                            f"Project: {project.name}. "
+                            f"Target companies: {', '.join(project.target_companies or [])}."
+                        ),
+                    }
+                ]
+
+                for msg in history:
+                    messages.append({"role": msg.role, "content": msg.content})
+
+                # Generate AI response (streaming)
+                ai_response_chunks = []
+                async for chunk in llm_client.chat_completion_stream(messages=messages):
+                    ai_response_chunks.append(chunk)
+                    await websocket.send_json({
+                        "type": "chunk",
+                        "content": chunk
+                    })
+
+                # Combine chunks
+                full_response = "".join(ai_response_chunks)
+
+                # Save AI message
+                ai_message = ChatMessage(
+                    id=uuid.uuid4(),
+                    project_id=uuid.UUID(project_id),
+                    user_id=user_id,
+                    role="assistant",
+                    content=full_response,
+                )
+                db.add(ai_message)
+                await db.commit()
+
+                # Send completion signal
+                await websocket.send_json({"type": "done"})
+
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        await websocket.send_json({
+            "type": "error",
+            "content": str(e)
+        })
+        await websocket.close()

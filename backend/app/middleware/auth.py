@@ -101,6 +101,9 @@ class ClerkAuth:
 
 clerk_auth = ClerkAuth()
 
+# In-memory lock to prevent race conditions during user provisioning
+_user_provision_locks: dict[str, bool] = {}
+
 
 async def fetch_clerk_user(user_id: str) -> dict | None:
     """
@@ -188,8 +191,8 @@ async def get_current_user(
         "org_role": payload.get("org_role"),
     }
 
-    # Ensure user exists in database (async background task)
-    # This runs without blocking the request
+    # Ensure user exists in database (async background task with locking)
+    # This runs without blocking the request but prevents race conditions
     import asyncio
     asyncio.create_task(_ensure_user_exists(user_data))
 
@@ -200,15 +203,28 @@ async def _ensure_user_exists(user_data: dict) -> None:
     """
     Background task to ensure user exists in database.
     Creates user and firm if they don't exist.
+
+    Uses in-memory lock to prevent race conditions when multiple
+    requests arrive simultaneously for the same user.
     """
     from app.db.database import get_db
     from app.db.models import Firm, User
     from sqlalchemy import select
+    from sqlalchemy.exc import IntegrityError
+
+    user_id = user_data["user_id"]
+
+    # Check if another task is already provisioning this user
+    if user_id in _user_provision_locks:
+        logger.debug(f"User provisioning already in progress for {user_id}")
+        return
+
+    # Set lock to prevent concurrent provisioning
+    _user_provision_locks[user_id] = True
 
     try:
         # Get a new DB session for this background task
         async for db in get_db():
-            user_id = user_data["user_id"]
             firm_id = user_data.get("org_id") or user_id
 
             # Check if user exists
@@ -224,29 +240,42 @@ async def _ensure_user_exists(user_data: dict) -> None:
                 firm = result.scalar_one_or_none()
 
                 if not firm:
-                    firm = Firm(
-                        id=firm_id,
-                        name=f"Personal - {clerk_user.get('email') if clerk_user else 'User'}",
-                    )
-                    db.add(firm)
-                    await db.flush()
+                    try:
+                        firm = Firm(
+                            id=firm_id,
+                            name=f"Personal - {clerk_user.get('email') if clerk_user else 'User'}",
+                        )
+                        db.add(firm)
+                        await db.flush()
+                    except IntegrityError:
+                        # Another task created the firm, rollback and continue
+                        await db.rollback()
+                        logger.debug(f"Firm {firm_id} already exists (race condition handled)")
 
                 # Create user
-                user = User(
-                    id=user_id,
-                    email=clerk_user.get("email") if clerk_user else f"{user_id}@unknown.com",
-                    first_name=clerk_user.get("first_name") if clerk_user else None,
-                    last_name=clerk_user.get("last_name") if clerk_user else None,
-                    image_url=clerk_user.get("image_url") if clerk_user else None,
-                    firm_id=firm_id if user_data.get("org_id") else None,
-                )
-                db.add(user)
-                await db.commit()
-                logger.info(f"Auto-provisioned user: {user_id}")
+                try:
+                    user = User(
+                        id=user_id,
+                        email=clerk_user.get("email") if clerk_user else f"{user_id}@unknown.com",
+                        first_name=clerk_user.get("first_name") if clerk_user else None,
+                        last_name=clerk_user.get("last_name") if clerk_user else None,
+                        image_url=clerk_user.get("image_url") if clerk_user else None,
+                        firm_id=firm_id if user_data.get("org_id") else None,
+                    )
+                    db.add(user)
+                    await db.commit()
+                    logger.info(f"Auto-provisioned user: {user_id}")
+                except IntegrityError:
+                    # Another task created the user, rollback and continue
+                    await db.rollback()
+                    logger.debug(f"User {user_id} already exists (race condition handled)")
 
             break  # Exit the async generator loop
     except Exception as e:
         logger.error(f"Failed to ensure user exists: {e}")
+    finally:
+        # Always release the lock
+        _user_provision_locks.pop(user_id, None)
 
 
 async def get_optional_user(

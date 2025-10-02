@@ -71,11 +71,12 @@ app.add_middleware(
 )
 
 # Include routers
-from app.api.routes import chat, health, projects
+from app.api.routes import chat, health, projects, webhooks
 
 app.include_router(health.router)
 app.include_router(projects.router, prefix="/api")
 app.include_router(chat.router, prefix="/api")
+app.include_router(webhooks.router, prefix="/api")
 
 
 @app.get("/", tags=["health"])
